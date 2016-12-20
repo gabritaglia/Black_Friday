@@ -1,0 +1,57 @@
+path <- "C:/Users/BTData/Documents/Projects/Black_Friday/"
+setwd(path)
+
+#load the package
+library(data.table)
+
+#load data using fread
+train <- fread("train.csv", stringsAsFactors = T)
+test <- fread("test.csv", stringsAsFactors = T)
+
+#No. of rows and columns in Train
+dim(train)
+
+#No. of rows and columns in Test
+dim(test)
+
+str(train)
+
+#first prediction using mean
+sub_mean <- data.frame(User_ID = test$User_ID, Product_ID = test$Product_ID, Purchase = mean(train$Purchase))
+write.csv(sub_mean, file = "first_sub.csv", row.names = F)
+
+summary (train)
+summary (test)
+
+#combine data set
+test[,Purchase := mean(train$Purchase)]
+c <- list(train, test)
+combin <- rbindlist(c)
+
+#analyzing gender variable
+combin[,prop.table(table(Gender))] Gender
+
+
+#Age Variable
+combin[,prop.table(table(Age))]
+
+
+#City Category Variable
+combin[,prop.table(table(City_Category))]
+
+#Stay in Current Years Variable
+combin[,prop.table(table(Stay_In_Current_City_Years))]
+
+#unique values in ID variables
+length(unique(combin$Product_ID))
+
+length(unique(combin$User_ID))
+
+#missing values
+colSums(is.na(combin))
+
+
+library(ggplot2)
+
+#Age vs Gender
+ggplot(combin, aes(Age, fill = Gender)) + geom_bar()
