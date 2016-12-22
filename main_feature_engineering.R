@@ -38,16 +38,18 @@ preprocess_data <- function() {
     df$Stay_In_Current_City_Years[df$Stay_In_Current_City_Years == "4+"] <- "4"
     df$Stay_In_Current_City_Years <- as.numeric(df$Stay_In_Current_City_Years)
 
+    
     # Dummy per le categorie dei prodotti
     cats_labels <- c("Product_Category_1", "Product_Category_2", "Product_Category_3")
     df$id <- seq.int(nrow(df))
     cats <- recast(df[, c("id", cats_labels)], id ~ value, id.var = "id", length)
     cats[, c("id", "NA")] <- NULL
     colnames(cats) <- paste("PC", colnames(cats), sep = "_")
-    df[, c("id", cats_labels)] <- NULL
+    # df[, c("id", cats_labels)] <- NULL #questo comando lo eseguo dopo il set di istruzioni per creare le variabili basate su Purchase
     df <- bind_cols(df, cats)
-
-
+    
+    #nota queste variabili le calcolo prima della ricodifica della categoria in dummies, ma le aggiungo dopo per non scombinare l'ordinamento
+    #User
     #Aggiungo il  count, purchase medio, mediano, q1, q3, max, min per User_ID
     df_User <- df %>% 
                   select(User_ID, Purchase) %>%
@@ -58,38 +60,51 @@ preprocess_data <- function() {
                             Q1_Purchase_User = quantile(Purchase,0.25,na.rm=TRUE),
                             Q3_Purchase_User = quantile(Purchase,0.75,na.rm=TRUE),
                             min_Purchase_User = min(Purchase,na.rm=TRUE),
-                            max_Purchase_User = max(Purchase,na.rm=TRUE))
+                            max_Purchase_User = max(Purchase,na.rm=TRUE),
+                            sd_Purchase_User = sd(Purchase,na.rm=TRUE)
+                            )
     df <- left_join( df, df_User, by = "User_ID")  
+        #Product
+    Product_ID_test<-df %>% filter(is.na(Purchase)) %>% distinct(Product_ID, Product_Category_1)
+    #Aggiungo il  count, purchase medio, mediano, q1, q3, max, min per Product_ID solo per i Product_ID nel che sono nel train
+    df_Product_train <- df %>% 
+                          select(Product_ID,Product_Category_1,Purchase) %>%
+                          filter(Product_ID %in% Product_ID_test$Product_ID) %>%
+                          group_by(Product_ID,Product_Category_1) %>%
+                          summarise(Product_Count = n(),
+                                    Mean_Purchase_Product = mean(Purchase, na.rm=TRUE),
+                                    Median_Purchase_Product = median(Purchase, na.rm=TRUE),
+                                    Q1_Purchase_Product = quantile(Purchase,0.25,na.rm=TRUE),
+                                    Q3_Purchase_Product = quantile(Purchase,0.75,na.rm=TRUE),
+                                    min_Purchase_Product = min(Purchase,na.rm=TRUE),
+                                    max_Purchase_Product = max(Purchase,na.rm=TRUE),
+                                    sd_Purchase_Product = sd(Purchase,na.rm=TRUE))
+                    
+    #creo un dataframe provvisorio con i Product_ID non presenti nel train e il relativo count
+    temp_Product_test <- df %>% 
+                            select(Product_ID, Purchase, Product_Category_1) %>%
+                            filter(!(Product_ID %in% Product_ID_test$Product_ID)) %>%
+                            group_by(Product_ID,Product_Category_1) %>%
+                            summarise(Product_Count = n())
+    #solo per i Product_ID non presenti nel train associo il purchase medio, mediano, q1, q3, max, min di categoria
+    temp_Product_NA <- df_Product_train %>% 
+                                        group_by(Product_Category_1) %>%
+                                        summarise(Mean_Purchase_Product = median(Mean_Purchase_Product, na.rm=TRUE),
+                                                  Median_Purchase_Product = median(Median_Purchase_Product, na.rm=TRUE),
+                                                  Q1_Purchase_Product = median(Q1_Purchase_Product,na.rm=TRUE),
+                                                  Q3_Purchase_Product = median(Q3_Purchase_Product,na.rm=TRUE),
+                                                  min_Purchase_Product = median(min_Purchase_Product,na.rm=TRUE),
+                                                  max_Purchase_Product = median(max_Purchase_Product,na.rm=TRUE),
+                                                  sd_Purchase_Product = median(sd_Purchase_Product,na.rm=TRUE))
+    #Metto insieme i due dataset provvisori relativi ai Product_ID presenti nel solo test set
+    df_Product_test <- left_join(temp_Product_test, temp_Product_NA, by = "Product_Category_1") 
+    #combino i due dataset prodotto del train e del test e ne faccio la join con il df originario
+    df_Product <- bind_rows(df_Product_train, df_Product_test) %>% select(-Product_Category_1)
+    #Aggiungo al dataset le variabili relative alle statistiche su Purchase per Product_ID che ho calcolato prima
+    df <- left_join( df, df_Product, by = "Product_ID")  
     
-    #Aggiungo il  count, purchase medio, mediano, q1, q3, max, min per Product_ID
-    df_Product <- df %>% 
-                    select(Product_ID, Purchase) %>%
-                    group_by(Product_ID) %>%
-                    summarise(Product_Count = n(),
-                              Mean_Purchase_Product = mean(Purchase, na.rm=TRUE),
-                              Median_Purchase_Product = median(Purchase, na.rm=TRUE),
-                              Q1_Purchase_Product = quantile(Purchase,0.25,na.rm=TRUE),
-                              Q3_Purchase_Product = quantile(Purchase,0.75,na.rm=TRUE),
-                              min_Purchase_Product = min(Purchase,na.rm=TRUE),
-                              max_Purchase_Product = max(Purchase,na.rm=TRUE))
-    df <- left_join( df, df_Product, by = "Product_ID")
-    #solo per i Product_ID non presenti nel train associo il valore mediano ad eccezione di Product_Count che è valorizzato anche se non ha Purchase associata
-    df_Product_NA <- df %>% 
-                        summarise(Mean_Purchase_Product = median(Mean_Purchase_Product, na.rm=TRUE),
-                                  Median_Purchase_Product = median(Median_Purchase_Product, na.rm=TRUE),
-                                  Q1_Purchase_Product = median(Q1_Purchase_Product,na.rm=TRUE),
-                                  Q3_Purchase_Product = median(Q3_Purchase_Product,na.rm=TRUE),
-                                  min_Purchase_Product = median(min_Purchase_Product,na.rm=TRUE),
-                                  max_Purchase_Product = median(max_Purchase_Product,na.rm=TRUE))
-    Product_ID_NA<-df %>% filter(is.na(Mean_Purchase_Product)) %>% select(Product_ID)
-    
-    df[df$Product_ID %in% Product_ID_NA$Product_ID, c( "Mean_Purchase_Product",
-                                                       "Median_Purchase_Product",
-                                                       "Q1_Purchase_Product",
-                                                       "Q3_Purchase_Product",
-                                                       "min_Purchase_Product",
-                                                       "max_Purchase_Product" )]<-df_Product_NA
-
+    #Elimino le variabili id, Product_Category_1, Product_Category_2, Product_Category_3 dal dataset che ora non servono più
+    df[, c("id", cats_labels)] <- NULL
     # Sposta la colonna Purchase alla fine
     df <- df %>% select( - Purchase, everything())
 
@@ -114,9 +129,10 @@ run <- function(data) {
     rmses_val <- vector('numeric')
     n_folds <- 5
     preds_test <- matrix(nrow = nrow(data[["X_test"]]), ncol = n_folds)
-    shuffle <- sample(length(data[["y_train"]]))
-    data[["X_train"]] <- data[["X_train"]][shuffle,]
-    data[["y_train"]] <- data[["y_train"]][shuffle]
+    #NOT shuffle
+    # shuffle <- sample(length(data[["y_train"]]))
+    # data[["X_train"]] <- data[["X_train"]][shuffle,]
+    # data[["y_train"]] <- data[["y_train"]][shuffle]
     kf <- createFolds(data[["y_train"]], k = n_folds)
     for (i in 1:n_folds) {
         X_train <- data[["X_train"]][ - kf[[i]],]
