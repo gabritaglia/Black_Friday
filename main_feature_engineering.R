@@ -196,6 +196,9 @@ main <- function() {
     print("Generating submission data...")
     write.csv(output[["df_submission"]], "submission_r.csv", row.names = FALSE, quote = FALSE)
 
+    print("Export output data...")
+    save(output,file = "output.Rdata")
+    
     print("Done.")
 }
 
